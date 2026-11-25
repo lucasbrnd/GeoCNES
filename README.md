@@ -31,7 +31,7 @@ Departamento de Engenharia de Transportes — EESC/USP
 * Python 3.10+
 * Um dos geocodificadores:
   * chave de API **HERE Geocoding** ([developer.here.com](https://developer.here.com/)), ou
-  * **R** com o pacote [geocodebr](https://ipeagit.github.io/geocodebr/) (gratuito, sem chave)
+  * o [geocodebr](https://github.com/ipea/geocodebr) do Ipea (gratuito, sem chave; instalado junto com o GeoCNES)
 
 ---
 
@@ -73,13 +73,13 @@ Veja também [`exemplos/exemplo.py`](exemplos/exemplo.py).
 
 ### Geocodificação com o geocodebr (Ipea), sem chave de API
 
-Como alternativa à HERE, o GeoCNES pode usar o [geocodebr](https://ipeagit.github.io/geocodebr/), do Ipea. Ele geocodifica a partir do CNEFE (cadastro de endereços do IBGE), é gratuito e roda localmente:
+Como alternativa à HERE, o GeoCNES pode usar o [geocodebr](https://github.com/ipea/geocodebr), do Ipea. Ele geocodifica a partir do CNEFE (cadastro de endereços do IBGE), é gratuito e roda localmente:
 
 ```python
 gdf = geocnes("São Carlos", "SP", geocodificador="geocodebr")
 ```
 
-Requer o R instalado com o pacote geocodebr (`install.packages("geocodebr")`). O `Rscript` é localizado automaticamente. Para indicar outro, defina a variável de ambiente `GEOCNES_RSCRIPT`. Na primeira execução, o geocodebr baixa a base do CNEFE para o cache local.
+O pacote Python [geocodebr](https://pypi.org/project/geocodebr/) é instalado junto com o GeoCNES, sem precisar de R. Na primeira execução, ele baixa os dados do CNEFE para o cache local.
 
 Antes da geocodificação, os endereços do CNES passam por uma limpeza:
 
@@ -97,7 +97,7 @@ Um registro fica marcado para revisão (`is_valid = False`) quando:
 
 Colunas adicionais da saída: `precisao`, `tipo_resultado`, `desvio_metros`, `endereco_encontrado`, `localidade_encontrada`, `similaridade_logradouro`, `contagem_cnefe`, `empate` e `endereco_geocodebr` (o endereço enviado após a limpeza). O arquivo é salvo com o sufixo `_geocodebr`.
 
-> **Limitação:** endereços no padrão de quadras e conjuntos (como em Brasília) raramente têm correspondência por logradouro no CNEFE e tendem a ser localizados apenas pelo CEP.
+> **Limitação:** endereços no padrão de quadras e conjuntos (como em Brasília) muitas vezes não têm correspondência por logradouro no CNEFE e acabam localizados apenas pelo CEP. Em teste com 213 unidades de Brasília, 27% foram localizadas pelo logradouro. As demais ficam marcadas para revisão.
 
 > Não coloque sua chave HERE diretamente no código que vai para o GitHub. Use uma variável de ambiente.
 

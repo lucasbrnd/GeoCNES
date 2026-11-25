@@ -18,6 +18,7 @@ dependencies = [
     "shapely",
     "geopy",
     "geobr",
+    "geocodebr>=0.2.0",
 ]
 
 [project.urls]

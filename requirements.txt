@@ -6,3 +6,4 @@ geopandas
 shapely
 geopy
 geobr
+geocodebr>=0.2.0

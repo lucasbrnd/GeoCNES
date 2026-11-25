@@ -31,7 +31,7 @@ if gdf is not None:
 
 # -------------------------------------------------------------
 # Alternativa sem chave de API: geocodebr (Ipea), base CNEFE/IBGE
-# Requer R com o pacote geocodebr: install.packages("geocodebr")
+# O pacote geocodebr é instalado junto com o GeoCNES (pip install geocodebr)
 # -------------------------------------------------------------
 gdf_ipea = geocnes(
     cidade_n="São Carlos",

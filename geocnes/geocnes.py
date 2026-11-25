@@ -1414,7 +1414,7 @@ def geocnes(cidade_n, uf, here_api=None, code_un='02', chunk=20, ano='00',
     geocodificador : str, opcional
         'here' (padrão) → API HERE
         'geocodebr'     → geocodebr (Ipea), com base no CNEFE/IBGE.
-                          Requer R com o pacote geocodebr.
+                          Requer o pacote Python geocodebr.
 
     precisao_minima : str, opcional
         Apenas para geocodificador='geocodebr'. Resultados com

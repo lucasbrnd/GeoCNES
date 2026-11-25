@@ -1,29 +1,23 @@
 """
 Geocodificação de estabelecimentos CNES com o geocodebr (Ipea).
 
-O geocodebr é um pacote R que geocodifica endereços brasileiros a partir
-do CNEFE (Cadastro Nacional de Endereços para Fins Estatísticos / IBGE),
+O geocodebr geocodifica endereços brasileiros a partir do CNEFE
+(Cadastro Nacional de Endereços para Fins Estatísticos / IBGE),
 sem depender de API comercial. Este módulo:
 
 1. Prepara os endereços do CNES no formato exigido pelo geocodebr
    (campos separados e limpos).
-2. Executa o geocodebr via Rscript.
+2. Executa o geocodebr (pacote Python: pip install geocodebr).
 3. Devolve um GeoDataFrame com as mesmas colunas de coordenadas usadas
    pelo fluxo HERE (lat, lon, geometry), além das informações de
    precisão do geocodebr.
 
-Requisitos: R instalado com os pacotes `geocodebr` e `enderecobr`.
-O executável Rscript é localizado automaticamente; para indicar outro,
-defina a variável de ambiente GEOCNES_RSCRIPT.
+Na primeira execução, o geocodebr baixa os dados do CNEFE para o
+cache local.
 """
 
-import glob
 import html
-import os
 import re
-import shutil
-import subprocess
-import tempfile
 import unicodedata
 
 import geopandas as gpd
@@ -206,68 +200,11 @@ def preparar_enderecos(df, municipio_padrao=None, uf_padrao=None):
 
 
 # ---------------------------------------------------------
-# 2. Execução do geocodebr (R)
+# 2. Execução do geocodebr
 # ---------------------------------------------------------
 
-_SCRIPT_R = r"""
-args <- commandArgs(trailingOnly = TRUE)
-suppressPackageStartupMessages(library(geocodebr))
-
-df <- read.csv(args[1], colClasses = "character",
-               encoding = "UTF-8", na.strings = "")
-df$numero <- as.integer(df$numero)
-
-n_cores <- if (args[3] == "NA") NULL else as.integer(args[3])
-
-campos <- definir_campos(
-  estado     = "estado",
-  municipio  = "municipio",
-  logradouro = "logradouro",
-  numero     = "numero",
-  cep        = "cep",
-  localidade = "localidade"
-)
-
-res <- geocode(
-  enderecos          = df,
-  campos_endereco    = campos,
-  resultado_completo = TRUE,
-  resolver_empates   = TRUE,
-  resultado_sf       = FALSE,
-  verboso            = FALSE,
-  cache              = TRUE,
-  n_cores            = n_cores
-)
-
-write.csv(as.data.frame(res), args[2], row.names = FALSE,
-          fileEncoding = "UTF-8", na = "")
-"""
-
-
-def encontrar_rscript():
-    """Localiza o executável Rscript."""
-
-    caminho = os.environ.get("GEOCNES_RSCRIPT") or shutil.which("Rscript")
-
-    if caminho:
-        return caminho
-
-    # Instalação padrão do R no Windows (usa a versão mais recente)
-    candidatos = sorted(
-        glob.glob(r"C:\Program Files\R\R-*\bin\Rscript.exe")
-    )
-
-    if candidatos:
-        return candidatos[-1]
-
-    raise FileNotFoundError(
-        "Rscript não encontrado. Instale o R ou defina a variável "
-        "de ambiente GEOCNES_RSCRIPT com o caminho do Rscript."
-    )
-
-
 def geocodificar_geocodebr(df, municipio_padrao=None, uf_padrao=None,
-                           n_cores=None, rscript=None):
+                           n_cores=None):
     """
     Geocodifica os estabelecimentos CNES com o geocodebr.
 
@@ -282,9 +219,6 @@ def geocodificar_geocodebr(df, municipio_padrao=None, uf_padrao=None,
     n_cores : int, opcional
         Núcleos usados pelo geocodebr (padrão: decisão do pacote).
 
-    rscript : str, opcional
-        Caminho do Rscript (padrão: localizado automaticamente).
-
     Retorno
     -------
     geopandas.GeoDataFrame
@@ -297,44 +231,65 @@ def geocodificar_geocodebr(df, municipio_padrao=None, uf_padrao=None,
         - tipo_resultado : código do caso de busca do geocodebr
         - desvio_metros : incerteza estimada da coordenada
         - endereco_encontrado : endereço do CNEFE correspondente
+        - localidade_encontrada, similaridade_logradouro,
+          contagem_cnefe, empate : detalhes da correspondência
         - endereco_geocodebr : endereço enviado após a limpeza
     """
 
-    rscript = rscript or encontrar_rscript()
+    try:
+        import pyarrow as pa
+        from geocodebr import definir_campos, geocode
+    except ImportError as e:
+        raise ImportError(
+            "O geocodificador 'geocodebr' requer o pacote geocodebr: "
+            "pip install geocodebr"
+        ) from e
 
     df = df.reset_index(drop=True).copy()
 
     prep = preparar_enderecos(df, municipio_padrao, uf_padrao)
 
-    with tempfile.TemporaryDirectory(prefix="geocnes_") as tmp:
+    # Tipos explícitos: uma coluna inteiramente vazia (ex.: nenhum CEP)
+    # seria lida como tipo nulo e recusada pela padronização.
+    texto = ["logradouro", "cep", "localidade", "municipio", "estado"]
 
-        entrada = os.path.join(tmp, "entrada.csv")
-        saida = os.path.join(tmp, "saida.csv")
-        script = os.path.join(tmp, "geocodebr.R")
+    tabela = pa.table(
+        {
+            "id": pa.array(prep["id"], type=pa.int64()),
+            "numero": pa.array(
+                prep["numero"].astype(object).where(
+                    prep["numero"].notna(), None
+                ),
+                type=pa.int64(),
+            ),
+            **{
+                c: pa.array(
+                    prep[c].astype(object).where(prep[c].notna(), None),
+                    type=pa.string(),
+                )
+                for c in texto
+            },
+        }
+    )
 
-        prep.to_csv(entrada, index=False, encoding="utf-8")
+    campos = definir_campos(
+        estado="estado",
+        municipio="municipio",
+        logradouro="logradouro",
+        numero="numero",
+        cep="cep",
+        localidade="localidade",
+    )
 
-        with open(script, "w", encoding="utf-8") as f:
-            f.write(_SCRIPT_R)
-
-        proc = subprocess.run(
-            [
-                rscript, "--vanilla", script, entrada, saida,
-                "NA" if n_cores is None else str(n_cores),
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-
-        if proc.returncode != 0 or not os.path.exists(saida):
-            raise RuntimeError(
-                "Falha ao executar o geocodebr:\n"
-                + (proc.stderr or proc.stdout)[-3000:]
-            )
-
-        res = pd.read_csv(saida, encoding="utf-8")
+    res = geocode(
+        enderecos=tabela,
+        campos_endereco=campos,
+        resultado_completo=True,
+        resolver_empates=True,
+        verboso=False,
+        cache=True,
+        n_cores=n_cores,
+    ).to_pandas()
 
     # Colunas de interesse do geocodebr
     manter = [
@@ -349,13 +304,13 @@ def geocodificar_geocodebr(df, municipio_padrao=None, uf_padrao=None,
 
     res = res[manter].drop_duplicates("id")
 
-    campos = ["logradouro", "numero", "localidade", "cep",
-              "municipio", "estado"]
+    campos_txt = ["logradouro", "numero", "localidade", "cep",
+                  "municipio", "estado"]
 
     out = df.copy()
     out["endereco_geocodebr"] = [
         ", ".join(str(v) for v in linha if pd.notna(v))
-        for linha in prep[campos].itertuples(index=False)
+        for linha in prep[campos_txt].itertuples(index=False)
     ]
 
     # prep["id"] é a posição da linha em df (0..n-1)
