@@ -27,3 +27,18 @@ gdf = geocnes(
 
 if gdf is not None:
     print(gdf[["CNES", "Nome_Fantasia", "is_valid"]].head())
+
+
+# -------------------------------------------------------------
+# Alternativa sem chave de API: geocodebr (Ipea), base CNEFE/IBGE
+# Requer R com o pacote geocodebr: install.packages("geocodebr")
+# -------------------------------------------------------------
+gdf_ipea = geocnes(
+    cidade_n="São Carlos",
+    uf="SP",
+    geocodificador="geocodebr",
+    code_un="02",
+)
+
+if gdf_ipea is not None:
+    print(gdf_ipea[["CNES", "Nome_Fantasia", "precisao", "is_valid"]].head())

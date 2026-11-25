@@ -1383,7 +1383,8 @@ def process_locations(gdf, here_api):
         validated_gdf
     )
 
-def geocnes(cidade_n, uf, here_api, code_un='02', chunk=20, ano='00'):
+def geocnes(cidade_n, uf, here_api=None, code_un='02', chunk=20, ano='00',
+            geocodificador='here', precisao_minima='logradouro'):
     """
     Executa o fluxo completo de obtenção e geocodificação de dados do CNES
     para um município.
@@ -1393,7 +1394,7 @@ def geocnes(cidade_n, uf, here_api, code_un='02', chunk=20, ano='00'):
     1. Identificação do código do município (IBGE)
     2. Obtenção da lista de estabelecimentos CNES
     3. Coleta dos dados detalhados das unidades
-    4. Geocodificação dos endereços (API HERE)
+    4. Geocodificação dos endereços (API HERE ou geocodebr)
     5. Validação das coordenadas obtidas
     6. Geração de relatório de validação
     7. Salvamento dos resultados
@@ -1406,8 +1407,20 @@ def geocnes(cidade_n, uf, here_api, code_un='02', chunk=20, ano='00'):
     uf : str
         Sigla da unidade federativa.
 
-    here_api : str
-        Chave de acesso à API HERE.
+    here_api : str, opcional
+        Chave de acesso à API HERE. Obrigatória apenas
+        com geocodificador='here'.
+
+    geocodificador : str, opcional
+        'here' (padrão) → API HERE
+        'geocodebr'     → geocodebr (Ipea), com base no CNEFE/IBGE.
+                          Requer R com o pacote geocodebr.
+
+    precisao_minima : str, opcional
+        Apenas para geocodificador='geocodebr'. Resultados com
+        precisão pior que esta ficam marcados para revisão.
+        Níveis: 'numero', 'numero_aproximado', 'logradouro' (padrão),
+        'cep', 'localidade', 'municipio'.
 
     code_un : str, opcional
         Código do tipo de estabelecimento CNES.
@@ -1432,6 +1445,16 @@ def geocnes(cidade_n, uf, here_api, code_un='02', chunk=20, ano='00'):
     cidade = cidade_n
 
     print (f"• Inicializando GeoCNES • \nCidade: {cidade} - {uf}.")
+
+    if geocodificador not in ('here', 'geocodebr'):
+        raise ValueError(
+            "geocodificador deve ser 'here' ou 'geocodebr'"
+        )
+
+    if geocodificador == 'here' and not here_api:
+        raise ValueError(
+            "here_api é obrigatório com geocodificador='here'"
+        )
 
     # -------------------------------------------------
     # 1. Obter código do município
@@ -1520,15 +1543,31 @@ def geocnes(cidade_n, uf, here_api, code_un='02', chunk=20, ano='00'):
     # -------------------------------------------------
 
     print(
-        "• Geocodificando endereços..."
+        f"• Geocodificando endereços ({geocodificador})..."
     )
 
-    geo_df = geocode_chunks(
-        df,
-        here_api,
-        cidade_n,
-        chunk
-    )
+    if geocodificador == 'geocodebr':
+
+        from .geocodebr import geocodificar_geocodebr, validar_geocodebr
+
+        try:
+            geo_df = geocodificar_geocodebr(
+                df,
+                municipio_padrao=cidade,
+                uf_padrao=uf
+            )
+        except Exception as e:
+            print(f"⚠ Falha na geocodificação: {e}")
+            geo_df = None
+
+    else:
+
+        geo_df = geocode_chunks(
+            df,
+            here_api,
+            cidade_n,
+            chunk
+        )
 
     if geo_df is None:
 
@@ -1546,10 +1585,27 @@ def geocnes(cidade_n, uf, here_api, code_un='02', chunk=20, ano='00'):
         "• Validando coordenadas..."
     )
 
-    validated_df = process_locations(
-        geo_df,
-        here_api
-    )
+    if geocodificador == 'geocodebr':
+
+        validated_df = validar_geocodebr(
+            geo_df,
+            code_mun,
+            precisao_minima=precisao_minima
+        )
+
+        print(
+            "\n○ Precisão do geocodebr:\n"
+            + validated_df['precisao']
+            .value_counts(dropna=False)
+            .to_string()
+        )
+
+    else:
+
+        validated_df = process_locations(
+            geo_df,
+            here_api
+        )
 
     # -------------------------------------------------
     # 7. Relatório de validação
@@ -1599,9 +1655,11 @@ def geocnes(cidade_n, uf, here_api, code_un='02', chunk=20, ano='00'):
         exist_ok=True
     )
 
+    sufixo = '_geocodebr' if geocodificador == 'geocodebr' else ''
+
     output_file = (
         f"./data/resultados/{cidade}/"
-        f"cnes_{cidade}_{uf}_{code_un}.gpkg"
+        f"cnes_{cidade}_{uf}_{code_un}{sufixo}.gpkg"
     )
 
     validated_df.to_file(
