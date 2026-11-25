@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "geocnes"
+version = "2.0.0"
+description = "Obtenção e geocodificação de estabelecimentos de saúde do CNES/DATASUS"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Lucas Brandão Monteiro de Assis" }]
+dependencies = [
+    "requests",
+    "urllib3",
+    "pandas",
+    "lxml",
+    "geopandas",
+    "shapely",
+    "geopy",
+    "geobr",
+]
+
+[project.urls]
+Repositorio = "https://github.com/lucasbrnd/GeoCNES"
+
+[tool.setuptools]
+packages = ["geocnes"]
